@@ -43,6 +43,7 @@ NeanderMachine::NeanderMachine()
     instructions.append(new Instruction(2, "0100....", Instruction::OR,  "or a"));
     instructions.append(new Instruction(2, "0101....", Instruction::AND, "and a"));
     instructions.append(new Instruction(1, "0110....", Instruction::NOT, "not"));
+    instructions.append(new Instruction(2, "0111....", Instruction::SUB, "sub a"));
     instructions.append(new Instruction(2, "1000....", Instruction::JMP, "jmp a"));
     instructions.append(new Instruction(2, "1001....", Instruction::JN,  "jn a"));
     instructions.append(new Instruction(2, "1010....", Instruction::JZ,  "jz a"));

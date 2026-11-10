@@ -18,6 +18,7 @@ private slots:
     void test_OR();
     void test_AND();
     void test_NOT();
+    void test_SUB();
     void test_JMP();
     void test_JN();
     void test_JZ();
@@ -96,6 +97,35 @@ void NeanderMachineTest::test_NOT()
     testedMachine.step();
     value = testedMachine.getRegisterValue("AC");
     QCOMPARE(value, 248);
+}
+
+void NeanderMachineTest::test_SUB()
+{
+    // 7 - 5 = 2 (positive, non-zero)
+    PUT_INSTRUCTION_IN_MEMORY(testedMachine, 0x70, 128);
+    testedMachine.setRegisterValue("AC", 7);
+    testedMachine.setMemoryValue(128, 5);
+    testedMachine.step();
+    QCOMPARE(testedMachine.getRegisterValue("AC"), 2);
+    QCOMPARE(testedMachine.getFlagValue("N"), 0);
+    QCOMPARE(testedMachine.getFlagValue("Z"), 0);
+
+    // 5 - 5 = 0 (zero)
+    testedMachine.setPCValue(0);
+    testedMachine.setRegisterValue("AC", 5);
+    testedMachine.step();
+    QCOMPARE(testedMachine.getRegisterValue("AC"), 0);
+    QCOMPARE(testedMachine.getFlagValue("N"), 0);
+    QCOMPARE(testedMachine.getFlagValue("Z"), 1);
+
+    // 5 - 7 = -2 = 254 (negative)
+    testedMachine.setPCValue(0);
+    testedMachine.setRegisterValue("AC", 5);
+    testedMachine.setMemoryValue(128, 7);
+    testedMachine.step();
+    QCOMPARE(testedMachine.getRegisterValue("AC"), 254);
+    QCOMPARE(testedMachine.getFlagValue("N"), 1);
+    QCOMPARE(testedMachine.getFlagValue("Z"), 0);
 }
 
 void NeanderMachineTest::test_JMP()
