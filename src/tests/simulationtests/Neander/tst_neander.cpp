@@ -34,6 +34,9 @@ private slots:
     // Memory file tests
     void test_hexImportExport();
 
+    // Disassembler tests
+    void test_disassembleRoundTrip();
+
     private:
     NeanderMachine testedMachine;
 
@@ -384,6 +387,125 @@ void NeanderMachineTest::test_hexImportExport()
         QCOMPARE((int)target.importMemory(badPath, 0, 256, 0), (int)FileErrorCode::invalidFormat);
         for (int i = 0; i < 256; i++)
             QCOMPARE(target.getMemoryValue(i), 0x55);
+    }
+}
+
+// Disassembles 'machine' and checks that assembling the result reproduces its memory
+static QString checkDisassemblyRoundTrip(NeanderMachine &machine)
+{
+    QString generated = machine.disassemble();
+
+    NeanderMachine rebuilt;
+    rebuilt.assemble(generated);
+
+    if (!rebuilt.getBuildSuccessful())
+        return "Generated code does not assemble:\n" + generated;
+
+    for (int i = 0; i < machine.getMemorySize(); i++)
+    {
+        if (rebuilt.getMemoryValue(i) != machine.getMemoryValue(i))
+            return QString("Byte %1 differs (%2 != %3):\n").arg(i).arg(rebuilt.getMemoryValue(i)).arg(machine.getMemoryValue(i)) + generated;
+    }
+
+    return QString();
+}
+
+void NeanderMachineTest::test_disassembleRoundTrip()
+{
+    const char *programs[] = {
+        // Code and data
+        "        lda x\n"
+        "        add y\n"
+        "        sta r\n"
+        "        jz fim\n"
+        "        not\n"
+        "fim:    hlt\n"
+        "        org 0x80\n"
+        "x:      db 5\n"
+        "y:      db 7\n"
+        "r:      db 0\n",
+
+        // Self-modifying code (operand labels)
+        "loop:   lda tabela\n"
+        "        add soma\n"
+        "        sta soma\n"
+        "        lda loop.op\n"
+        "        add um\n"
+        "        sta loop.op\n"
+        "        sub fimtab\n"
+        "        jz fim\n"
+        "        jmp loop\n"
+        "fim:    hlt\n"
+        "        org 0x80\n"
+        "tabela: dab 1, 2, 3\n"
+        "fimtab: db 0x83\n"
+        "soma:   db 0\n"
+        "um:     db 1\n",
+
+        // Opcode with non-zero low bits, unreachable instructions
+        "        lda x\n"
+        "        db h05\n"
+        "        hlt\n"
+        "x:      db 3\n",
+
+        // Scattered code and data
+        "        jmp 0x40\n"
+        "        org 0x40\n"
+        "        nop\n"
+        "        jn 0x40\n"
+        "        hlt\n"
+        "        org 0x90\n"
+        "        db 1\n"
+        "        org 0xFF\n"
+        "        db 2\n",
+
+        // Empty memory
+        "",
+    };
+
+    for (const char *program : programs)
+    {
+        NeanderMachine machine;
+        machine.assemble(program);
+        QVERIFY2(machine.getBuildSuccessful(), program);
+
+        QString error = checkDisassemblyRoundTrip(machine);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+    }
+
+    // Generated labels
+    {
+        NeanderMachine machine;
+        machine.assemble(programs[1]);
+        QString generated = machine.disassemble();
+        QVERIFY2(generated.contains("L_00.op"), qPrintable(generated));
+        QVERIFY2(generated.contains("D_80:"), qPrintable(generated));
+        QVERIFY2(generated.contains("ORG 0x80"), qPrintable(generated));
+        QVERIFY2(generated.contains("JMP L_00"), qPrintable(generated));
+    }
+
+    // Arbitrary memory contents
+    unsigned int seed = 12345;
+    for (int round = 0; round < 50; round++)
+    {
+        NeanderMachine machine;
+
+        for (int i = 0; i < machine.getMemorySize(); i++)
+        {
+            seed = seed * 1103515245 + 12345;
+            int value = (seed >> 16) & 0xFF;
+
+            // Bias towards valid opcodes and zeros to exercise code discovery
+            if (round % 2 == 0 && (value & 0x03) == 0)
+                value &= 0xF0;
+            if (round % 3 == 0 && (value & 0x07) == 0)
+                value = 0;
+
+            machine.setMemoryValue(i, value);
+        }
+
+        QString error = checkDisassemblyRoundTrip(machine);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
     }
 }
 

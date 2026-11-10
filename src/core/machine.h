@@ -163,6 +163,17 @@ public:
 
 
     //////////////////////////////////////////////////
+    // Disassembler
+    //////////////////////////////////////////////////
+
+    ///True if disassemble() is implemented for this machine
+    virtual bool supportsDisassembly() const { return false; }
+    ///Generates source code that assembles back to the current memory contents
+    virtual QString disassemble() { return QString(); }
+
+
+
+    //////////////////////////////////////////////////
     // Instruction strings
     //////////////////////////////////////////////////
 

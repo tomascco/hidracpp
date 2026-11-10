@@ -169,3 +169,40 @@ cada 16 bytes. O arquivo pode ser lido diretamente em Verilog/SystemVerilog:
 logic [7:0] mem [0:255];
 initial $readmemh("programa.hex", mem);
 ```
+
+## Gerar código a partir da memória (Neander)
+
+*Máquina → Gerar código a partir da memória* substitui o código do editor por um
+código-fonte gerado a partir da memória atual. A mesma pergunta aparece depois
+de importar um arquivo de memória. Ao montar o código gerado, a memória fica
+**idêntica byte a byte**. Disponível só na Neander.
+
+- **Comentários e nomes de labels originais são perdidos.** A memória não guarda
+  essas informações.
+- **Código** é o que é alcançável a partir do endereço 0 seguindo o fluxo de
+  execução: `JMP` segue para o destino, `JN`/`JZ` seguem para o destino e para a
+  próxima instrução, e `HLT` para.
+- **Dados** são todo o resto. Viram `DB valor`.
+- Labels são gerados para todo endereço referenciado:
+  - `L_XX` para código e `D_XX` para dados, onde `XX` é o endereço em hexadecimal.
+  - Uma referência ao operando de uma instrução vira `L_XX.op`, o que é comum em
+    código automodificável.
+- Opcodes com o nibble baixo diferente de zero (por exemplo `05`) são gerados
+  como `DB`, porque `NOP` montaria `00`.
+- Sequências longas de zeros sem referência são omitidas, e o código usa `ORG`
+  para pular para a próxima posição.
+
+Exemplo de saída:
+
+```
+; ===== código =====
+L_00:   LDA L_00.op
+        ADD D_81
+        STA L_00.op
+        JMP L_00
+
+; ===== dados =====
+        ORG 0x80
+        DB 1
+D_81:   DB 1
+```

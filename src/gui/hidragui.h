@@ -115,6 +115,7 @@ private slots:
     void on_actionImportMemory_triggered();
     void on_actionImportMemoryPartial_triggered();
     void on_actionExportMemory_triggered();
+    void on_actionDisassembleMemory_triggered();
     void on_actionResetRegisters_triggered();
     void on_actionSetBreakpoint_triggered();
 
@@ -210,6 +211,9 @@ private:
     QString currentFilename;
     bool modifiedFile, manuallyModifiedMemory, modifiedSinceBackup;
     bool forceSaveAs; // Set to true when Save should trigger SaveAs
+
+    // Replaces the source code with code generated from memory (asks the user first)
+    void disassembleMemory(bool afterImport);
     QTimer backupTimer;
 
     // Build status

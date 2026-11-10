@@ -7,6 +7,9 @@ class NeanderMachine : public Machine
 {
 public:
     NeanderMachine();
+
+    bool supportsDisassembly() const override { return true; }
+    QString disassemble() override;
 };
 
 #endif // NEANDERMACHINE_H

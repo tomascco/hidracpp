@@ -148,6 +148,8 @@ void HidraGui::selectMachine(QString machineName)
         codeEditor->disableLineHighlight();
         initializeMachineInterface();
 
+        ui->actionDisassembleMemory->setEnabled(machine->supportsDisassembly());
+
         currentMachineName = machineName;
     }
 }
@@ -1338,6 +1340,8 @@ void HidraGui::on_actionImportMemory_triggered()
 
         if (!errorMessage.isEmpty())
             QMessageBox::information(this, "Erro ao importar memória.", errorMessage);
+        else
+            disassembleMemory(true);
     }
 
     updateMachineInterface();
@@ -1365,6 +1369,8 @@ void HidraGui::on_actionImportMemoryPartial_triggered()
 
         if (!errorMessage.isEmpty())
             QMessageBox::information(this, "Erro ao importar memória.", errorMessage);
+        else
+            disassembleMemory(true);
     }
 
     updateMachineInterface();
@@ -1392,6 +1398,37 @@ void HidraGui::on_actionExportMemory_triggered()
         if (errorCode != FileErrorCode::noError)
             QMessageBox::information(this, "Erro ao exportar memória.", "Erro ao exportar memória.");
     }
+}
+
+void HidraGui::on_actionDisassembleMemory_triggered()
+{
+    disassembleMemory(false);
+}
+
+void HidraGui::disassembleMemory(bool afterImport)
+{
+    if (!machine->supportsDisassembly())
+        return;
+
+    updateMachineInterface(); // Show imported memory while asking
+
+    QString question;
+
+    if (afterImport)
+        question += "Deseja gerar o código-fonte a partir da memória importada?\n\n";
+
+    question += "O código atual no editor será substituído. Comentários e nomes de labels serão perdidos: "
+                "a parte executável vira instruções e o resto vira dados (DB), "
+                "com labels gerados automaticamente (L_xx, D_xx).";
+
+    if (QMessageBox::question(this, "Gerar código a partir da memória", question,
+                              QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    codeEditor->setPlainText(machine->disassemble());
+
+    manuallyModifiedMemory = false; // Generated code reproduces the current memory
+    on_actionBuild_triggered();     // Syncs source code and memory (labels, line highlighting)
 }
 
 void HidraGui::on_actionResetRegisters_triggered()
