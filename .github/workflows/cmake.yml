@@ -35,6 +35,20 @@ jobs:
       working-directory: ${{github.workspace}}/build
       run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
 
+    - name: Package (executable + Qt DLLs)
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force hidra-windows | Out-Null
+        Copy-Item build/src/${{env.BUILD_TYPE}}/hidracpp.exe hidra-windows/
+        windeployqt --release --no-translations hidra-windows/hidracpp.exe
+
+    - name: Upload package
+      uses: actions/upload-artifact@v4
+      with:
+        name: hidracpp-windows
+        path: hidra-windows
+        if-no-files-found: error
+
   linux:
     # Rocky Linux 9 container: uses the distribution's Qt 5.15 packages, so the
     # executable runs on RHEL/Rocky/Alma 9 with the system Qt (dnf install qt5-qtbase-gui)
