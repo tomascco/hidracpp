@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(hidracpp VERSION 1.0 LANGUAGES CXX)
+project(hidracpp VERSION 1.3.0 LANGUAGES CXX)
 include(CTest)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
