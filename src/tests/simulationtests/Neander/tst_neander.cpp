@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QTemporaryDir>
+#include <QFile>
 
 #include "simulationtestcase.h"
 #include "neandermachine.h"
@@ -28,6 +30,9 @@ private slots:
     // Assembler tests
     void test_operandLabel();
     void test_numberLiterals();
+
+    // Memory file tests
+    void test_hexImportExport();
 
     private:
     NeanderMachine testedMachine;
@@ -293,6 +298,93 @@ void NeanderMachineTest::test_numberLiterals()
     QCOMPARE(Machine::parseNumber("0x80", nullptr), 128);
     QCOMPARE(Machine::parseNumber("0b1111", nullptr), 15);
     QCOMPARE(Machine::parseNumber("-12", nullptr), -12);
+}
+
+static void writeTextFile(QString path, QString contents)
+{
+    QFile file(path);
+    QVERIFY(file.open(QFile::WriteOnly | QFile::Truncate));
+    file.write(contents.toUtf8());
+}
+
+static void fillMemory(Machine &machine, int value)
+{
+    for (int i = 0; i < machine.getMemorySize(); i++)
+        machine.setMemoryValue(i, value);
+}
+
+void NeanderMachineTest::test_hexImportExport()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    NeanderMachine source, target;
+    for (int i = 0; i < source.getMemorySize(); i++)
+        source.setMemoryValue(i, (i * 7 + 3) & 0xFF);
+
+    // $writememh -> $readmemh round trip
+    QString hexPath = dir.filePath("roundtrip.hex");
+    QCOMPARE((int)source.exportMemoryHex(hexPath), (int)FileErrorCode::noError);
+    fillMemory(target, 0xAA);
+    QCOMPARE((int)target.importMemory(hexPath, 0, 256, 0), (int)FileErrorCode::noError);
+    for (int i = 0; i < 256; i++)
+        QCOMPARE(target.getMemoryValue(i), source.getMemoryValue(i));
+
+    // Hidra binary format is still detected and imported
+    QString memPath = dir.filePath("roundtrip.mem");
+    QCOMPARE((int)source.exportMemory(memPath), (int)FileErrorCode::noError);
+    fillMemory(target, 0xAA);
+    QCOMPARE((int)target.importMemory(memPath, 0, 256, 0), (int)FileErrorCode::noError);
+    for (int i = 0; i < 256; i++)
+        QCOMPARE(target.getMemoryValue(i), source.getMemoryValue(i));
+
+    // Handwritten file: comments, @address, '_' separators; unspecified addresses become 0
+    QString handPath = dir.filePath("hand.hex");
+    writeTextFile(handPath, "// comentário\n"
+                            "@10 0A 0b /* bloco\n"
+                            "   em várias linhas */ f_f\n"
+                            "@80\n"
+                            "1\n");
+    fillMemory(target, 0x55);
+    QCOMPARE((int)target.importMemory(handPath, 0, 256, 0), (int)FileErrorCode::noError);
+    for (int i = 0; i < 256; i++)
+    {
+        int expected = 0;
+        if (i == 0x10) expected = 0x0A;
+        if (i == 0x11) expected = 0x0B;
+        if (i == 0x12) expected = 0xFF;
+        if (i == 0x80) expected = 0x01;
+        QCOMPARE(target.getMemoryValue(i), expected);
+    }
+
+    // Partial import: file addresses [0x10, 0x14) to memory 0x40; only the destination range changes
+    fillMemory(target, 0x55);
+    QCOMPARE((int)target.importMemory(handPath, 0x10, 0x14, 0x40), (int)FileErrorCode::noError);
+    QCOMPARE(target.getMemoryValue(0x3F), 0x55);
+    QCOMPARE(target.getMemoryValue(0x40), 0x0A);
+    QCOMPARE(target.getMemoryValue(0x41), 0x0B);
+    QCOMPARE(target.getMemoryValue(0x42), 0xFF);
+    QCOMPARE(target.getMemoryValue(0x43), 0x00); // Not specified in the file
+    QCOMPARE(target.getMemoryValue(0x44), 0x55);
+
+    // Invalid files return invalidFormat and leave memory untouched
+    const char *invalidContents[] = {
+        "0A ZZ\n",              // Not hexadecimal
+        "100\n",                // Value larger than a byte
+        "@100 01\n",            // Address beyond memory
+        "@FF 01 02\n",          // Writes beyond memory
+        "01 /* unterminated\n", // Unterminated block comment
+    };
+
+    for (const char *contents : invalidContents)
+    {
+        QString badPath = dir.filePath("bad.hex");
+        writeTextFile(badPath, contents);
+        fillMemory(target, 0x55);
+        QCOMPARE((int)target.importMemory(badPath, 0, 256, 0), (int)FileErrorCode::invalidFormat);
+        for (int i = 0; i < 256; i++)
+            QCOMPARE(target.getMemoryValue(i), 0x55);
+    }
 }
 
 #include "tst_neander.moc"

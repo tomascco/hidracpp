@@ -128,3 +128,44 @@ executa como `NOP`.
   o `SUB` atualiza apenas essas duas. Carry, borrow e overflow não existem nesta
   máquina.
 - Programas que usam `SUB` não rodam no WNeander original.
+
+## Arquivos de memória
+
+O menu de importar e exportar memória trabalha com dois formatos.
+
+| Formato | Extensão | Importa | Exporta |
+|---|---|---|---|
+| Binário do Hidra/Daedalus | `.mem` | sim | sim (filtro *Memória do Hidra*) |
+| Texto Verilog `$readmemh` / `$writememh` | `.hex` (também `.mem`, `.txt`) | sim | sim (filtro *Verilog $writememh*) |
+
+Na **importação**, o formato é detectado pelo conteúdo: o binário do Hidra
+sempre contém bytes nulos, e um arquivo de texto nunca contém. Por isso um
+`.mem` gerado por uma ferramenta Verilog também abre.
+
+### Formato `$readmemh` aceito
+```
+// comentário de linha
+/* comentário
+   de bloco */
+@10          // próximo valor vai para o endereço 0x10
+3A 0b        // um byte por token, em hexadecimal
+f_f          // '_' é ignorado dentro do número
+```
+- Cada valor ocupa um byte (`00`–`FF`) e é escrito no endereço atual, que
+  depois avança uma posição.
+- `@endereço` (em hexadecimal) muda o endereço atual.
+- **Endereços que não aparecem no arquivo ficam com 0.** Na importação
+  parcial, isso vale só para a faixa de destino.
+- Se o arquivo tiver qualquer erro (token não hexadecimal, valor maior que
+  `FF`, endereço fora da memória ou comentário `/*` sem fechamento), nada é
+  alterado e aparece a mensagem "Formato de arquivo inválido".
+- Não há suporte a `x`/`z` nem a valores com mais de um byte por token.
+
+### Formato gravado na exportação
+Um byte por linha, em hexadecimal minúsculo, com um comentário de endereço a
+cada 16 bytes. O arquivo pode ser lido diretamente em Verilog/SystemVerilog:
+
+```systemverilog
+logic [7:0] mem [0:255];
+initial $readmemh("programa.hex", mem);
+```

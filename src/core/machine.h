@@ -24,7 +24,8 @@ namespace FileErrorCode
         inputOutput,
         incorrectSize,
         invalidIdentifier,
-        invalidAddress
+        invalidAddress,
+        invalidFormat
     };
 }
 
@@ -143,10 +144,21 @@ public:
     // Import/Export memory
     //////////////////////////////////////////////////
 
-    ///Set up the machine's memory from a .mem file
+    ///Set up the machine's memory from a Hidra .mem file or a Verilog $readmemh file (format auto-detected)
     FileErrorCode::FileErrorCode importMemory(QString filename, int start, int end, int dest);
-    ///Save the machine's memory in a .mem file
+    ///Save the machine's memory in a Hidra .mem file
     FileErrorCode::FileErrorCode exportMemory(QString filename);
+    ///Save the machine's memory in Verilog's $writememh format
+    FileErrorCode::FileErrorCode exportMemoryHex(QString filename);
+    ///Parses $readmemh text; values not specified in the text are -1. Returns false on format errors.
+    static bool parseReadmemh(QString text, int memorySize, QVector<int> &values);
+
+private:
+    static bool isHidraBinaryMemoryData(QByteArray const& data);
+    FileErrorCode::FileErrorCode importMemoryBinary(QByteArray const& data, int start, int end, int dest);
+    FileErrorCode::FileErrorCode importMemoryHex(QByteArray const& data, int start, int end, int dest);
+
+public:
 
 
 
