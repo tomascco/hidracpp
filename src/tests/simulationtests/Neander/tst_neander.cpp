@@ -25,6 +25,9 @@ private slots:
     void test_HLT();
     void test_NOP();
 
+    // Assembler tests
+    void test_operandLabel();
+
     private:
     NeanderMachine testedMachine;
 
@@ -189,6 +192,52 @@ void NeanderMachineTest::test_NOP()
     PUT_INSTRUCTION_IN_MEMORY(testedMachine, 0, 0);
     testedMachine.step();
     QCOMPARE(testedMachine.isRunning(), true);
+}
+
+void NeanderMachineTest::test_operandLabel()
+{
+    // "x.op" points to the operand byte of the instruction labeled "x"
+    {
+        NeanderMachine machine;
+        machine.assemble("org 0\n"
+                         "x: lda 128\n"   // 0, 1
+                         "sta x.op\n"     // 2, 3
+                         "hlt\n");        // 4
+        QVERIFY(machine.getBuildSuccessful());
+        QCOMPARE(machine.getMemoryValue(3), 1);
+        QCOMPARE(machine.getAddressCorrespondingLabel(0), QString("x"));
+        QCOMPARE(machine.getAddressCorrespondingLabel(1), QString("x.op"));
+    }
+
+    // Label alone on its line, case insensitive, with offset
+    {
+        NeanderMachine machine;
+        machine.assemble("org 16\n"
+                         "Loop:\n"
+                         "  lda 128\n"       // 16, 17
+                         "  sta LOOP.OP\n"   // 18, 19
+                         "  jmp loop.op+1\n" // 20, 21
+                         );
+        QVERIFY(machine.getBuildSuccessful());
+        QCOMPARE(machine.getMemoryValue(19), 17);
+        QCOMPARE(machine.getMemoryValue(21), 18);
+    }
+
+    // One-byte instructions have no operand label
+    {
+        NeanderMachine machine;
+        machine.assemble("y: not\n"
+                         "lda y.op\n");
+        QVERIFY(!machine.getBuildSuccessful());
+    }
+
+    // Directives have no operand label
+    {
+        NeanderMachine machine;
+        machine.assemble("lda z.op\n"
+                         "z: db 5\n");
+        QVERIFY(!machine.getBuildSuccessful());
+    }
 }
 
 #include "tst_neander.moc"

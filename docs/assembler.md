@@ -46,6 +46,27 @@ ptr:    LDA 128      ; ptr = endereço da instrução, ptr+1 = operando (128)
         STA ptr+1    ; agora a instrução em ptr lê o endereço 129
 ```
 
+### Label do operando: `label.op`
+Todo label colocado numa instrução que tem operando (2 bytes ou mais) define
+automaticamente um segundo label, `label.op`, que aponta para o byte do operando.
+É o mesmo que `label+1`, mas deixa a intenção explícita:
+
+```
+ptr:    LDA 128      ; define ptr (instrução) e ptr.op (operando)
+        ...
+        LDA ptr.op
+        ADD um
+        STA ptr.op
+```
+
+- Também funciona com o label sozinho na linha anterior à instrução.
+- Aceita deslocamento: `ptr.op+1`.
+- Labels em instruções de 1 byte (`NOT`, `NOP`, `HLT`) e em diretivas (`DB`…)
+  **não** geram `.op`. Usar `x.op` nesse caso dá erro de montagem.
+- O nome `x.op` aparece na coluna *Label* da tabela de memória.
+- Como `.` não é permitido em labels definidos pelo usuário, um `x.op` nunca
+  conflita com um label definido à mão.
+
 ## Diretivas
 
 | Diretiva | Uso | Efeito |

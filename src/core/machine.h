@@ -52,6 +52,7 @@ public:
     // Constants
     QString ALLOCATE_SYMBOL = "%";
     QString QUOTE_SYMBOL = "¢";
+    QString OPERAND_LABEL_SUFFIX = ".op"; // "label.op" = address of the operand of the instruction at "label"
 
     explicit Machine(QObject *parent = 0);
     ~Machine();
@@ -95,6 +96,7 @@ public:
     // Assembly
     void assemble(QString sourceCode);
     void obeyDirective(QString mnemonic, QString arguments, bool reserveOnly, int sourceLine);
+    void defineOperandLabels(QStringList const& labels, int operandAddress);
     void buildInstruction(QString mnemonic, QString arguments);
     void emitError(int lineNumber, Machine::ErrorCode errorCode);
 

@@ -428,6 +428,9 @@ void Machine::assemble(QString sourceCode)
     clearAssemblerData();
     PC->setValue(0);
 
+    // Labels defined since the last memory reservation (a label may be alone on its line)
+    QStringList pendingLabels;
+
     for (int lineNumber = 0; lineNumber < sourceLines.size(); lineNumber++)
     {
         try
@@ -448,6 +451,7 @@ void Machine::assemble(QString sourceCode)
 
                 labelPCMap.insert(labelName.toLower(), PC->getValue()); // Add to map
                 addressCorrespondingLabel[PC->getValue()] = labelName;
+                pendingLabels.append(labelName);
                 sourceLines[lineNumber] = sourceLines[lineNumber].replace(labelName + ":", "").trimmed(); // Remove label from sourceLines
             }
 
@@ -462,6 +466,7 @@ void Machine::assemble(QString sourceCode)
                 const Instruction *instruction = getInstructionFromMnemonic(mnemonic);
                 if (instruction != NULL)
                 {
+                    int instructionAddress = PC->getValue();
                     int numBytes = instruction->getNumBytes();
 
                     if (numBytes == 0) // If instruction has variable number of bytes
@@ -471,10 +476,17 @@ void Machine::assemble(QString sourceCode)
                     }
 
                     reserveAssemblerMemory(numBytes, lineNumber);
+
+                    // Labels on instructions with an operand also define "<label>.op" (address of the operand byte)
+                    if (numBytes >= 2)
+                        defineOperandLabels(pendingLabels, address(instructionAddress + 1));
+
+                    pendingLabels.clear();
                 }
                 else // Directive
                 {
                     QString arguments = sourceLines[lineNumber].section(whitespace, 1); // Everything after mnemonic
+                    pendingLabels.clear();
                     obeyDirective(mnemonic, arguments, true, lineNumber);
                 }
             }
@@ -538,6 +550,19 @@ void Machine::assemble(QString sourceCode)
 
     copyAssemblerMemoryToMemory();
     clearAfterBuild();
+}
+
+// Defines "<label>.op" for each label, pointing to the instruction's operand byte.
+// Label names cannot contain '.', so these never collide with user-defined labels.
+void Machine::defineOperandLabels(QStringList const& labels, int operandAddress)
+{
+    foreach (QString labelName, labels)
+    {
+        labelPCMap.insert(labelName.toLower() + OPERAND_LABEL_SUFFIX, operandAddress);
+
+        if (addressCorrespondingLabel[operandAddress].isEmpty())
+            addressCorrespondingLabel[operandAddress] = labelName + OPERAND_LABEL_SUFFIX;
+    }
 }
 
 // Mnemonic must be lowercase
