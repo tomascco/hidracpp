@@ -5,6 +5,8 @@ O Hidra é um ambiente de desenvolvimento integrado para as máquinas teóricas 
 
 Além das máquinas Neander, Ahmes e Ramses, o Hidra traz a simulação da máquina de registradores REG e da máquina de pilha Volta, bem como das demais arquiteturas hipotéticas descritas ao final do livro Fundamentos de Arquitetura de Computadores, do Prof. Raul Fernando Weber, com a <ins>notável exceção da máquina Cesar</ins>, a qual está <ins>atualmente em desenvolvimento.</ins>
 
+A sintaxe do assembler (diretivas, labels, números, formatos de memória) está descrita em [docs/assembler.md](docs/assembler.md).
+
 Download
 ========
 
