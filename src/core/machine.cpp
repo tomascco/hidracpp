@@ -428,6 +428,9 @@ void Machine::assemble(QString sourceCode)
     clearAssemblerData();
     PC->setValue(0);
 
+    // Labels defined since the last memory reservation (a label may be alone on its line)
+    QStringList pendingLabels;
+
     for (int lineNumber = 0; lineNumber < sourceLines.size(); lineNumber++)
     {
         try
@@ -448,6 +451,7 @@ void Machine::assemble(QString sourceCode)
 
                 labelPCMap.insert(labelName.toLower(), PC->getValue()); // Add to map
                 addressCorrespondingLabel[PC->getValue()] = labelName;
+                pendingLabels.append(labelName);
                 sourceLines[lineNumber] = sourceLines[lineNumber].replace(labelName + ":", "").trimmed(); // Remove label from sourceLines
             }
 
@@ -462,6 +466,7 @@ void Machine::assemble(QString sourceCode)
                 const Instruction *instruction = getInstructionFromMnemonic(mnemonic);
                 if (instruction != NULL)
                 {
+                    int instructionAddress = PC->getValue();
                     int numBytes = instruction->getNumBytes();
 
                     if (numBytes == 0) // If instruction has variable number of bytes
@@ -471,10 +476,17 @@ void Machine::assemble(QString sourceCode)
                     }
 
                     reserveAssemblerMemory(numBytes, lineNumber);
+
+                    // Labels on instructions with an operand also define "<label>.op" (address of the operand byte)
+                    if (numBytes >= 2)
+                        defineOperandLabels(pendingLabels, address(instructionAddress + 1));
+
+                    pendingLabels.clear();
                 }
                 else // Directive
                 {
                     QString arguments = sourceLines[lineNumber].section(whitespace, 1); // Everything after mnemonic
+                    pendingLabels.clear();
                     obeyDirective(mnemonic, arguments, true, lineNumber);
                 }
             }
@@ -538,6 +550,19 @@ void Machine::assemble(QString sourceCode)
 
     copyAssemblerMemoryToMemory();
     clearAfterBuild();
+}
+
+// Defines "<label>.op" for each label, pointing to the instruction's operand byte.
+// Label names cannot contain '.', so these never collide with user-defined labels.
+void Machine::defineOperandLabels(QStringList const& labels, int operandAddress)
+{
+    foreach (QString labelName, labels)
+    {
+        labelPCMap.insert(labelName.toLower() + OPERAND_LABEL_SUFFIX, operandAddress);
+
+        if (addressCorrespondingLabel[operandAddress].isEmpty())
+            addressCorrespondingLabel[operandAddress] = labelName + OPERAND_LABEL_SUFFIX;
+    }
 }
 
 // Mnemonic must be lowercase
@@ -828,15 +853,58 @@ int Machine::calculateBytesToReserve(QString)
     return 0;
 }
 
+// Parses a numeric literal. Accepted formats:
+//   decimal: 128, -5
+//   hexadecimal: h80 (Hidra/Daedalus style), 0x80, -0x05
+//   binary: 0b10000000, -0b1
+int Machine::parseNumber(QString valueString, bool *ok)
+{
+    bool conversionOk = false;
+    int value = 0;
+    QString lowered = valueString.toLower();
+
+    if (lowered.startsWith("h"))
+    {
+        value = lowered.mid(1).toInt(&conversionOk, 16); // Remove "h"
+    }
+    else
+    {
+        bool negative = lowered.startsWith("-");
+        QString body = negative ? lowered.mid(1) : lowered;
+        int base = 10;
+
+        if (body.startsWith("0x"))
+            base = 16;
+        else if (body.startsWith("0b"))
+            base = 2;
+
+        if (base != 10)
+        {
+            body = body.mid(2); // Remove prefix
+
+            // Digits only after the prefix (no extra sign or whitespace)
+            if (!body.isEmpty() && body.at(0).isLetterOrNumber())
+                value = body.toInt(&conversionOk, base);
+
+            if (negative)
+                value = -value;
+        }
+        else
+        {
+            value = lowered.toInt(&conversionOk, 10);
+        }
+    }
+
+    if (ok != nullptr)
+        *ok = conversionOk;
+
+    return conversionOk ? value : 0;
+}
+
 bool Machine::isValidValue(QString valueString, int min, int max)
 {
     bool ok;
-    int value;
-
-    if (valueString.left(1).toLower() == "h")
-        value = valueString.mid(1).toInt(&ok, 16); // Remove "h"
-    else
-        value = valueString.toInt(&ok, 10);
+    int value = parseNumber(valueString, &ok);
 
     // Returns true if conversion ok and value between min and max
     return (ok && value >= min && value <= max);
@@ -995,10 +1063,7 @@ int Machine::argumentToValue(QString argument, bool isImmediate, int immediateNu
 
 int Machine::stringToInt(QString valueString)
 {
-    if (valueString.left(1).toLower() == "h") // Remove H
-        return valueString.mid(1).toInt(NULL, 16);
-    else
-        return valueString.toInt(NULL, 10);
+    return parseNumber(valueString, nullptr);
 }
 
 
@@ -1070,53 +1135,170 @@ int Machine::GetCurrentJumpAddress()
 // Import/Export memory
 //////////////////////////////////////////////////
 
-// Returns true if successful
+// Imports a memory file, detecting its format (Hidra binary .mem or Verilog $readmemh text).
+// File addresses [start, end) are copied to memory starting at 'dest'.
 FileErrorCode::FileErrorCode Machine::importMemory(QString filename, int start, int end, int dest)
 {
-    if(start < 0 || end > memory.size()){
+    if (start < 0 || end > memory.size() || dest < 0 || dest > memory.size())
         return FileErrorCode::invalidAddress;
-    }
-    
-    char byte;
+
     QFile memFile(filename); // Implicitly closed
 
-    // Open file
-    memFile.open(QFile::ReadOnly);
+    if (!memFile.open(QFile::ReadOnly))
+        return FileErrorCode::inputOutput;
+
+    QByteArray data = memFile.readAll();
+
+    if (memFile.error() != QFileDevice::NoError)
+        return FileErrorCode::inputOutput;
+
+    if (isHidraBinaryMemoryData(data))
+        return importMemoryBinary(data, start, end, dest);
+    else
+        return importMemoryHex(data, start, end, dest);
+}
+
+// Text files never contain NUL bytes, while Hidra's binary format pads every byte with a zero
+// and starts with a (non-whitespace) control character: the identifier's length.
+bool Machine::isHidraBinaryMemoryData(QByteArray const& data)
+{
+    if (data.isEmpty())
+        return false;
+
+    unsigned char firstByte = (unsigned char)data.at(0);
+    bool firstByteIsControl = (firstByte < 0x20 && firstByte != '\t' && firstByte != '\n' && firstByte != '\r');
+
+    return data.contains('\0') || firstByteIsControl;
+}
+
+FileErrorCode::FileErrorCode Machine::importMemoryBinary(QByteArray const& data, int start, int end, int dest)
+{
+    int headerSize = 1 + identifier.length();
 
     // The file must contain the identifier's length, the machine's identifier and twice the amount of memory
-    if (memFile.size() != 1 + identifier.length() + memory.size() * 2)
+    if (data.size() != headerSize + memory.size() * 2)
         return FileErrorCode::incorrectSize;
 
-    // Read identifier length
-    memFile.getChar(&byte);
-    if (byte != identifier.length())
-        return FileErrorCode::invalidIdentifier; // Incorrect identifier length
+    // Identifier length
+    if (data.at(0) != identifier.length())
+        return FileErrorCode::invalidIdentifier;
 
-    // Read identifier
+    // Identifier
     for (int i = 0; i < identifier.length(); i++)
     {
-        memFile.getChar(&byte);
-
-        if (byte != identifier[i].toLatin1())
+        if (data.at(1 + i) != identifier[i].toLatin1())
             return FileErrorCode::invalidIdentifier; // Wrong character
     }
 
-    // Read memory
-    memFile.seek(1 + identifier.length() + (2 * start)); //Set loaded file read starting point
-    int read_size = qMin<int>(end - start, getMemorySize() - dest); //Put the maximum amount of bytes read possible
+    // Memory (each byte is followed by a padding byte)
+    int readSize = qMin<int>(end - start, getMemorySize() - dest); // Maximum amount of bytes that can be read
 
-    for (int address = dest; address < (dest + read_size); address++)
+    for (int i = 0; i < readSize; i++)
+        setMemoryValue(dest + i, (unsigned char)data.at(headerSize + 2 * (start + i)));
+
+    return FileErrorCode::noError;
+}
+
+// Reads a subset of Verilog's $readmemh format:
+//   - hexadecimal values separated by whitespace ('_' allowed inside numbers)
+//   - "// line" and "/* block */" comments
+//   - "@hex" sets the current address
+// Addresses not present in the file are set to zero.
+// The file is fully validated before memory is changed.
+FileErrorCode::FileErrorCode Machine::importMemoryHex(QByteArray const& data, int start, int end, int dest)
+{
+    QVector<int> fileValues; // -1 = not specified by the file
+
+    if (!parseReadmemh(QString::fromUtf8(data), memory.size(), fileValues))
+        return FileErrorCode::invalidFormat;
+
+    int readSize = qMin<int>(end - start, getMemorySize() - dest); // Maximum amount of bytes that can be read
+
+    for (int i = 0; i < readSize; i++)
     {
-        memFile.getChar(&byte);
-        setMemoryValue(address, byte);
-        memFile.getChar(&byte); // Skip byte
+        int value = fileValues[start + i];
+        setMemoryValue(dest + i, (value >= 0) ? value : 0);
     }
 
-    // Return error status
-    if (memFile.error() != QFileDevice::NoError)
-        return FileErrorCode::inputOutput;
-    else
-        return FileErrorCode::noError;
+    return FileErrorCode::noError;
+}
+
+bool Machine::parseReadmemh(QString text, int memorySize, QVector<int> &values)
+{
+    values.fill(-1, memorySize);
+
+    // Remove byte order mark
+    if (text.startsWith(QChar(0xFEFF)))
+        text.remove(0, 1);
+
+    // Remove comments (replaced with whitespace to keep tokens separated)
+    QString stripped;
+    int i = 0;
+
+    while (i < text.length())
+    {
+        if (text.midRef(i, 2) == QLatin1String("//"))
+        {
+            while (i < text.length() && text.at(i) != '\n')
+                i++;
+        }
+        else if (text.midRef(i, 2) == QLatin1String("/*"))
+        {
+            int closing = text.indexOf("*/", i + 2);
+
+            if (closing < 0)
+                return false; // Unterminated block comment
+
+            i = closing + 2;
+            stripped += ' ';
+        }
+        else
+        {
+            stripped += text.at(i);
+            i++;
+        }
+    }
+
+    // Process tokens
+    static QRegExp hexDigits("[0-9a-fA-F]+");
+    int currentAddress = 0;
+
+    foreach (QString token, stripped.split(QRegExp("\\s+"), QString::SkipEmptyParts))
+    {
+        bool isAddress = token.startsWith('@');
+
+        if (isAddress)
+            token.remove(0, 1);
+
+        token.remove('_');
+
+        if (!hexDigits.exactMatch(token))
+            return false;
+
+        bool ok;
+        int value = token.toInt(&ok, 16);
+
+        if (!ok)
+            return false;
+
+        if (isAddress)
+        {
+            if (value >= memorySize)
+                return false;
+
+            currentAddress = value;
+        }
+        else
+        {
+            if (value > 0xFF || currentAddress >= memorySize)
+                return false;
+
+            values[currentAddress] = value;
+            currentAddress++;
+        }
+    }
+
+    return true;
 }
 
 // Returns true if successful
@@ -1144,6 +1326,36 @@ FileErrorCode::FileErrorCode Machine::exportMemory(QString filename)
     }
 
     // Return error status
+    if (memFile.error() != QFileDevice::NoError)
+        return FileErrorCode::inputOutput;
+    else
+        return FileErrorCode::noError;
+}
+
+// Saves memory in Verilog's $writememh format (readable by $readmemh): one byte per line
+FileErrorCode::FileErrorCode Machine::exportMemoryHex(QString filename)
+{
+    QFile memFile(filename); // Implicitly closed
+
+    if (!memFile.open(QFile::WriteOnly | QFile::Text))
+        return FileErrorCode::inputOutput;
+
+    int addressDigits = QString::number(qMax(memory.size() - 1, 1), 16).length();
+    QString text;
+
+    text += QString("// Hidra memory dump: %1, %2 bytes\n").arg(identifier).arg(memory.size());
+    text += "// Format: $readmemh / $writememh (one hexadecimal byte per line)\n";
+
+    for (int address = 0; address < memory.size(); address++)
+    {
+        if (address % 16 == 0)
+            text += QString("// 0x%1\n").arg(address, addressDigits, 16, QChar('0'));
+
+        text += QString("%1\n").arg(memory[address]->getValue() & 0xFF, 2, 16, QChar('0'));
+    }
+
+    memFile.write(text.toUtf8());
+
     if (memFile.error() != QFileDevice::NoError)
         return FileErrorCode::inputOutput;
     else

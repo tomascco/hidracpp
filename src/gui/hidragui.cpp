@@ -15,6 +15,7 @@
 #include "ui_hidragui.h"
 #include <QSizeGrip>
 #include <QInputDialog>
+#include <QFileInfo>
 
 #define DEBUG_INT(value) qDebug(QString::number(value).toStdString().c_str());
 #define DEBUG_STRING(value) qDebug(value.toStdString().c_str());
@@ -146,6 +147,8 @@ void HidraGui::selectMachine(QString machineName)
 
         codeEditor->disableLineHighlight();
         initializeMachineInterface();
+
+        ui->actionDisassembleMemory->setEnabled(machine->supportsDisassembly());
 
         currentMachineName = machineName;
     }
@@ -1287,40 +1290,58 @@ void HidraGui::on_actionStep_triggered()
     step(true, true);
 }
 
+static const QString MEMORY_FILE_IMPORT_FILTER =
+        "Arquivos de memória (*.mem *.hex *.txt);;"
+        "Memória do Hidra (*.mem);;"
+        "Verilog $readmemh (*.hex *.mem *.txt);;"
+        "Todos os arquivos (*)";
+
+static const QString MEMORY_FILE_EXPORT_FILTER_HIDRA = "Memória do Hidra (*.mem)";
+static const QString MEMORY_FILE_EXPORT_FILTER_HEX   = "Verilog $writememh (*.hex)";
+
+// Returns an empty string if there was no error
+static QString fileErrorMessage(FileErrorCode::FileErrorCode errorCode)
+{
+    switch (errorCode)
+    {
+        case FileErrorCode::noError:
+            return "";
+
+        case FileErrorCode::inputOutput:
+            return "Erro na leitura do arquivo.";
+
+        case FileErrorCode::incorrectSize:
+            return "Arquivo de tamanho incorreto.";
+
+        case FileErrorCode::invalidIdentifier:
+            return "Arquivo incompatível com a máquina selecionada.";
+
+        case FileErrorCode::invalidAddress:
+            return "Endereço inválido.";
+
+        case FileErrorCode::invalidFormat:
+            return "Formato de arquivo inválido. Arquivos de texto devem seguir o formato $readmemh "
+                   "(valores hexadecimais de até FF, \"@endereço\" e comentários // ou /* */).";
+
+        default:
+            return "Erro não especificado.";
+    }
+}
+
 void HidraGui::on_actionImportMemory_triggered()
 {
     QString filename = QFileDialog::getOpenFileName(this,
                                                     "Importar memória", "",
-                                                    "Arquivo de memória (*.mem)");
+                                                    MEMORY_FILE_IMPORT_FILTER);
 
     if (!filename.isEmpty())
     {
-        QString errorMessage;
-
-        switch (machine->importMemory(filename, 0, machine->getMemorySize(), 0))
-        {
-            case FileErrorCode::noError:
-                break;
-
-            case FileErrorCode::inputOutput:
-                errorMessage = "Erro na leitura do arquivo.";
-                break;
-
-            case FileErrorCode::incorrectSize:
-                errorMessage = "Arquivo de tamanho incorreto.";
-                break;
-
-            case FileErrorCode::invalidIdentifier:
-                errorMessage = "Arquivo incompatível com a máquina selecionada.";
-                break;
-
-            default:
-                errorMessage = "Erro não especificado.";
-                break;
-        }
+        QString errorMessage = fileErrorMessage(machine->importMemory(filename, 0, machine->getMemorySize(), 0));
 
         if (!errorMessage.isEmpty())
             QMessageBox::information(this, "Erro ao importar memória.", errorMessage);
+        else
+            disassembleMemory(true);
     }
 
     updateMachineInterface();
@@ -1328,13 +1349,12 @@ void HidraGui::on_actionImportMemory_triggered()
 
 void HidraGui::on_actionImportMemoryPartial_triggered()
 {
-        QString filename = QFileDialog::getOpenFileName(this,
+    QString filename = QFileDialog::getOpenFileName(this,
                                                     "Carregamento Parcial de Memória", "",
-                                                    "Arquivo de memória (*.mem)");
+                                                    MEMORY_FILE_IMPORT_FILTER);
 
     if (!filename.isEmpty())
     {
-        QString errorMessage;
         int start, end, dest;
         bool ok;
 
@@ -1344,31 +1364,13 @@ void HidraGui::on_actionImportMemoryPartial_triggered()
         if(!ok){return;}
         dest = QInputDialog::getInt(this, tr("Carga Parcial de memória"), tr("Entre com o endereço de destino (Memória)"), 0, 0, machine->getMemorySize(), 1, &ok);
         if(!ok){return;}
-        
-        switch (machine->importMemory(filename, start, end, dest))
-        {
-            case FileErrorCode::noError:
-                break;
 
-            case FileErrorCode::inputOutput:
-                errorMessage = "Erro na leitura do arquivo.";
-                break;
-
-            case FileErrorCode::incorrectSize:
-                errorMessage = "Arquivo de tamanho incorreto.";
-                break;
-
-            case FileErrorCode::invalidIdentifier:
-                errorMessage = "Arquivo incompatível com a máquina selecionada.";
-                break;
-
-            default:
-                errorMessage = "Erro não especificado.";
-                break;
-        }
+        QString errorMessage = fileErrorMessage(machine->importMemory(filename, start, end, dest));
 
         if (!errorMessage.isEmpty())
             QMessageBox::information(this, "Erro ao importar memória.", errorMessage);
+        else
+            disassembleMemory(true);
     }
 
     updateMachineInterface();
@@ -1376,15 +1378,57 @@ void HidraGui::on_actionImportMemoryPartial_triggered()
 
 void HidraGui::on_actionExportMemory_triggered()
 {
+    QString selectedFilter;
     QString filename = QFileDialog::getSaveFileName(this,
                                                     "Exportar memória", "",
-                                                    "Arquivo de memória (*.mem)");
+                                                    MEMORY_FILE_EXPORT_FILTER_HIDRA + ";;" + MEMORY_FILE_EXPORT_FILTER_HEX,
+                                                    &selectedFilter);
 
     if (!filename.isEmpty())
     {
-        if (machine->exportMemory(filename) != FileErrorCode::noError)
+        QString suffix = QFileInfo(filename).suffix().toLower();
+        bool exportHex = (selectedFilter == MEMORY_FILE_EXPORT_FILTER_HEX) || suffix == "hex" || suffix == "txt";
+
+        if (exportHex && suffix.isEmpty())
+            filename += ".hex";
+
+        FileErrorCode::FileErrorCode errorCode = exportHex ? machine->exportMemoryHex(filename)
+                                                           : machine->exportMemory(filename);
+
+        if (errorCode != FileErrorCode::noError)
             QMessageBox::information(this, "Erro ao exportar memória.", "Erro ao exportar memória.");
     }
+}
+
+void HidraGui::on_actionDisassembleMemory_triggered()
+{
+    disassembleMemory(false);
+}
+
+void HidraGui::disassembleMemory(bool afterImport)
+{
+    if (!machine->supportsDisassembly())
+        return;
+
+    updateMachineInterface(); // Show imported memory while asking
+
+    QString question;
+
+    if (afterImport)
+        question += "Deseja gerar o código-fonte a partir da memória importada?\n\n";
+
+    question += "O código atual no editor será substituído. Comentários e nomes de labels serão perdidos: "
+                "a parte executável vira instruções e o resto vira dados (DB), "
+                "com labels gerados automaticamente (L_xx, D_xx).";
+
+    if (QMessageBox::question(this, "Gerar código a partir da memória", question,
+                              QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    codeEditor->setPlainText(machine->disassemble());
+
+    manuallyModifiedMemory = false; // Generated code reproduces the current memory
+    on_actionBuild_triggered();     // Syncs source code and memory (labels, line highlighting)
 }
 
 void HidraGui::on_actionResetRegisters_triggered()

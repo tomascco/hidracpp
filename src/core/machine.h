@@ -24,7 +24,8 @@ namespace FileErrorCode
         inputOutput,
         incorrectSize,
         invalidIdentifier,
-        invalidAddress
+        invalidAddress,
+        invalidFormat
     };
 }
 
@@ -52,6 +53,7 @@ public:
     // Constants
     QString ALLOCATE_SYMBOL = "%";
     QString QUOTE_SYMBOL = "¢";
+    QString OPERAND_LABEL_SUFFIX = ".op"; // "label.op" = address of the operand of the instruction at "label"
 
     explicit Machine(QObject *parent = 0);
     ~Machine();
@@ -95,6 +97,7 @@ public:
     // Assembly
     void assemble(QString sourceCode);
     void obeyDirective(QString mnemonic, QString arguments, bool reserveOnly, int sourceLine);
+    void defineOperandLabels(QStringList const& labels, int operandAddress);
     void buildInstruction(QString mnemonic, QString arguments);
     void emitError(int lineNumber, Machine::ErrorCode errorCode);
 
@@ -119,6 +122,7 @@ public:
     int convertToUnsigned(int value, int numberOfBytes);
     int argumentToValue(QString argument, bool isImmediate, int immediateNumBytes = 1);
     int stringToInt(QString valueString);
+    static int parseNumber(QString valueString, bool *ok); // Decimal, h80, 0x80, 0b1010
 
 
 
@@ -140,10 +144,32 @@ public:
     // Import/Export memory
     //////////////////////////////////////////////////
 
-    ///Set up the machine's memory from a .mem file
+    ///Set up the machine's memory from a Hidra .mem file or a Verilog $readmemh file (format auto-detected)
     FileErrorCode::FileErrorCode importMemory(QString filename, int start, int end, int dest);
-    ///Save the machine's memory in a .mem file
+    ///Save the machine's memory in a Hidra .mem file
     FileErrorCode::FileErrorCode exportMemory(QString filename);
+    ///Save the machine's memory in Verilog's $writememh format
+    FileErrorCode::FileErrorCode exportMemoryHex(QString filename);
+    ///Parses $readmemh text; values not specified in the text are -1. Returns false on format errors.
+    static bool parseReadmemh(QString text, int memorySize, QVector<int> &values);
+
+private:
+    static bool isHidraBinaryMemoryData(QByteArray const& data);
+    FileErrorCode::FileErrorCode importMemoryBinary(QByteArray const& data, int start, int end, int dest);
+    FileErrorCode::FileErrorCode importMemoryHex(QByteArray const& data, int start, int end, int dest);
+
+public:
+
+
+
+    //////////////////////////////////////////////////
+    // Disassembler
+    //////////////////////////////////////////////////
+
+    ///True if disassemble() is implemented for this machine
+    virtual bool supportsDisassembly() const { return false; }
+    ///Generates source code that assembles back to the current memory contents
+    virtual QString disassemble() { return QString(); }
 
 
 

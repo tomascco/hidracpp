@@ -735,6 +735,7 @@
     <addaction name="actionImportMemory"/>
     <addaction name="actionImportMemoryPartial"/>
     <addaction name="actionExportMemory"/>
+    <addaction name="actionDisassembleMemory"/>
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title">
@@ -891,7 +892,7 @@
     <string>Importar memória...</string>
    </property>
    <property name="statusTip">
-    <string>Importa arquivo binário de memória, sobrescrevendo a memória atual.</string>
+    <string>Importa arquivo de memória (binário do Hidra ou texto $readmemh), sobrescrevendo a memória atual.</string>
    </property>
   </action>
   <action name="actionExportMemory">
@@ -899,7 +900,15 @@
     <string>Exportar memória...</string>
    </property>
    <property name="statusTip">
-    <string>Exporta a memória atual como arquivo binário.</string>
+    <string>Exporta a memória atual como arquivo binário do Hidra ou texto $writememh.</string>
+   </property>
+  </action>
+  <action name="actionDisassembleMemory">
+   <property name="text">
+    <string>Gerar código a partir da memória</string>
+   </property>
+   <property name="statusTip">
+    <string>Substitui o código-fonte por instruções e dados gerados a partir da memória atual.</string>
    </property>
   </action>
   <action name="actionResetRegisters">
