@@ -31,7 +31,13 @@ label:  MNEMÔNICO operando   ; comentário
 | Decimal      | `128`   | 128   |
 | Decimal negativo | `-1` | 255 (em um byte) |
 | Hexadecimal (estilo Hidra/Daedalus) | `h80` | 128 |
+| Hexadecimal (estilo C) | `0x80`, `-0x01` | 128, 255 |
+| Binário      | `0b00001010` | 10 |
 | Caractere    | `'A'`   | 65    |
+
+Os prefixos `0x` e `0b` podem ser escritos em maiúsculas ou minúsculas e
+funcionam em qualquer lugar onde um número é aceito: `ORG 0x80`, `DB 0b1010`,
+`LDA 0x80` e `LDA x+0x10`.
 
 ### Label com deslocamento
 `label+n` e `label-n` referenciam o endereço do label somado ao deslocamento.
@@ -87,7 +93,7 @@ Exemplo de organização típica para a Neander:
         STA r
         HLT
 
-        ORG 128          ; dados a partir do endereço 128
+        ORG 0x80         ; dados a partir do endereço 128
 x:      DB 5
 y:      DB 7
 r:      DB 0

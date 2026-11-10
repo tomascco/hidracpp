@@ -853,15 +853,58 @@ int Machine::calculateBytesToReserve(QString)
     return 0;
 }
 
+// Parses a numeric literal. Accepted formats:
+//   decimal: 128, -5
+//   hexadecimal: h80 (Hidra/Daedalus style), 0x80, -0x05
+//   binary: 0b10000000, -0b1
+int Machine::parseNumber(QString valueString, bool *ok)
+{
+    bool conversionOk = false;
+    int value = 0;
+    QString lowered = valueString.toLower();
+
+    if (lowered.startsWith("h"))
+    {
+        value = lowered.mid(1).toInt(&conversionOk, 16); // Remove "h"
+    }
+    else
+    {
+        bool negative = lowered.startsWith("-");
+        QString body = negative ? lowered.mid(1) : lowered;
+        int base = 10;
+
+        if (body.startsWith("0x"))
+            base = 16;
+        else if (body.startsWith("0b"))
+            base = 2;
+
+        if (base != 10)
+        {
+            body = body.mid(2); // Remove prefix
+
+            // Digits only after the prefix (no extra sign or whitespace)
+            if (!body.isEmpty() && body.at(0).isLetterOrNumber())
+                value = body.toInt(&conversionOk, base);
+
+            if (negative)
+                value = -value;
+        }
+        else
+        {
+            value = lowered.toInt(&conversionOk, 10);
+        }
+    }
+
+    if (ok != nullptr)
+        *ok = conversionOk;
+
+    return conversionOk ? value : 0;
+}
+
 bool Machine::isValidValue(QString valueString, int min, int max)
 {
     bool ok;
-    int value;
-
-    if (valueString.left(1).toLower() == "h")
-        value = valueString.mid(1).toInt(&ok, 16); // Remove "h"
-    else
-        value = valueString.toInt(&ok, 10);
+    int value = parseNumber(valueString, &ok);
 
     // Returns true if conversion ok and value between min and max
     return (ok && value >= min && value <= max);
@@ -1020,10 +1063,7 @@ int Machine::argumentToValue(QString argument, bool isImmediate, int immediateNu
 
 int Machine::stringToInt(QString valueString)
 {
-    if (valueString.left(1).toLower() == "h") // Remove H
-        return valueString.mid(1).toInt(NULL, 16);
-    else
-        return valueString.toInt(NULL, 10);
+    return parseNumber(valueString, nullptr);
 }
 
 

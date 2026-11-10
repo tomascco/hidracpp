@@ -27,6 +27,7 @@ private slots:
 
     // Assembler tests
     void test_operandLabel();
+    void test_numberLiterals();
 
     private:
     NeanderMachine testedMachine;
@@ -238,6 +239,60 @@ void NeanderMachineTest::test_operandLabel()
                          "z: db 5\n");
         QVERIFY(!machine.getBuildSuccessful());
     }
+}
+
+void NeanderMachineTest::test_numberLiterals()
+{
+    {
+        NeanderMachine machine;
+        machine.assemble("        org 0\n"
+                         "        lda x\n"
+                         "        sub y\n"
+                         "        sta r\n"
+                         "        hlt\n"
+                         "        org 0x80        ; data from 128\n"
+                         "x:      db 0b00001010\n"
+                         "y:      db 0X03\n"
+                         "r:      db h7F\n"
+                         "        db -0x01\n"
+                         "        db -0b10\n");
+        QVERIFY(machine.getBuildSuccessful());
+        QCOMPARE(machine.getMemoryValue(1), 128);     // lda x -> x = 0x80
+        QCOMPARE(machine.getMemoryValue(0x80), 10);
+        QCOMPARE(machine.getMemoryValue(0x81), 3);
+        QCOMPARE(machine.getMemoryValue(0x82), 0x7F);
+        QCOMPARE(machine.getMemoryValue(0x83), 0xFF);
+        QCOMPARE(machine.getMemoryValue(0x84), 0xFE);
+    }
+
+    // Offset with hexadecimal literal
+    {
+        NeanderMachine machine;
+        machine.assemble("x: lda x+0x10\n");
+        QVERIFY(machine.getBuildSuccessful());
+        QCOMPARE(machine.getMemoryValue(1), 16);
+    }
+
+    // Invalid literals and out-of-range addresses
+    const char *invalidSources[] = {
+        "org 0x100\n",   // Beyond Neander's memory
+        "db 0x\n",       // Prefix without digits
+        "db 0b102\n",    // Invalid binary digit
+        "db 0xG1\n",     // Invalid hex digit
+        "db 0x+1\n",     // Sign after prefix
+    };
+
+    for (const char *source : invalidSources)
+    {
+        NeanderMachine machine;
+        machine.assemble(source);
+        QVERIFY2(!machine.getBuildSuccessful(), source);
+    }
+
+    QCOMPARE(Machine::parseNumber("h80", nullptr), 128);
+    QCOMPARE(Machine::parseNumber("0x80", nullptr), 128);
+    QCOMPARE(Machine::parseNumber("0b1111", nullptr), 15);
+    QCOMPARE(Machine::parseNumber("-12", nullptr), -12);
 }
 
 #include "tst_neander.moc"

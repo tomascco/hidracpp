@@ -121,6 +121,7 @@ public:
     int convertToUnsigned(int value, int numberOfBytes);
     int argumentToValue(QString argument, bool isImmediate, int immediateNumBytes = 1);
     int stringToInt(QString valueString);
+    static int parseNumber(QString valueString, bool *ok); // Decimal, h80, 0x80, 0b1010
 
 
 
